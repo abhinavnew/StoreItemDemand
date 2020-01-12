@@ -6,7 +6,6 @@ library(dplyr)
 library(caTools)
 library(reshape2)
 library(gbm)
-library(caTools)
 library(randomForest)
 library(ggplot2)
 library(data.table)
@@ -21,6 +20,7 @@ library(glmnet)
 library(pROC)
 library(funModeling)
 library(lubridate)
+library(forecast)
 
 
 ##Notations off and clear all objects
@@ -70,11 +70,14 @@ storedata_origtest=fread("E:\\AbhinavB\\Kaggle\\StoreItemDemandPrediction\\test.
 dim(storedata_origtrain)
 dim(storedata_origtest)
 
-storedata_origtrain$id=NA
-storedata_origtrain$ind="train"
-storedata_origtest$sales=NA
-storedata_origtest$ind="test"
-combined=rbind(storedata_origtrain,storedata_origtest)
+storedata_train=storedata_origtrain
+storedata_test=storedata_origtest
+
+storedata_train$id=NA
+storedata_train$ind="train"
+storedata_test$sales=NA
+storedata_test$ind="test"
+combined=rbind(storedata_train,storedata_test)
 dim(combined)
 glimpse(combined)
                    

@@ -1,0 +1,302 @@
+---
+title: "Store Item demand Forecasting -Exploratory analysis and Report "
+author: "Abhinav B."
+date: "4 January 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = F,message = F,fig.width = 12,fig.height = 8)
+```
+
+# Report on data analysis and prediction methods-Store Item forecasting
+
+
+```{r lib_load,echo=F,results="hide",include=F}
+library(caret)
+library(tidyr)
+library(plyr)
+library(dplyr)
+library(caTools)
+library(reshape2)
+library(gbm)
+library(randomForest)
+library(ggplot2)
+library(data.table)
+library(xgboost)
+library(Matrix)
+library(lightgbm)
+library(TeachingDemos)
+library(Hmisc)
+library(DMwR)
+library(e1071)
+library(glmnet)
+library(pROC)
+library(funModeling)
+library(lubridate)
+library(forecast)
+library(Metrics)
+library(zoo)
+```
+
+####Loading the store item dataset (Training data and Unknown data)
+```{r load_data,echo=TRUE,include=T,results="hide"}
+options(scipen = 999)
+rm(list = ls())
+gc()
+first_day_of_month_wday <- function(dt) {
+  day(dt) <- 1
+  wday(dt)
+}
+
+storedata_origtrain=fread("E:\\AbhinavB\\Kaggle\\StoreItemDemandPrediction\\train.csv",
+                          data.table = FALSE,stringsAsFactors = TRUE)
+storedata_origtest=fread("E:\\AbhinavB\\Kaggle\\StoreItemDemandPrediction\\test.csv",data.table = FALSE,stringsAsFactors = TRUE)
+```
+####Combining Training and Unknown data for adding features
+```{r features,echo=T}
+dim(storedata_origtrain)
+dim(storedata_origtest)
+storedata_train=storedata_origtrain
+storedata_test=storedata_origtest
+storedata_train$id=NA
+storedata_train$ind="train"
+storedata_test$sales=NA
+storedata_test$ind="test"
+combined=rbind(storedata_train,storedata_test)
+storedata=combined
+dim(storedata)
+glimpse(storedata)
+```
+
+####Date related feature engineering and validation set for testing model on known data
+```{r chunk4,echo=T,results="hide"}
+storedata$date2=ymd(storedata$date)
+storedata$YEAR=lubridate::year(storedata$date2)
+storedata$MNTH=lubridate::month(storedata$date2)
+storedata$MNTH_NM=lubridate::month(storedata$date2,label=TRUE)
+storedata$Quarter=lubridate::quarter(storedata$date2)
+storedata$Semester=lubridate::semester(storedata$date2)
+##Day of week month year 
+storedata$DayOfWeek=lubridate::wday(storedata$date2)
+storedata$DayOfWeek_Name=lubridate::wday(storedata$date2,label=TRUE)
+storedata$DayOfMonth=lubridate::mday(storedata$date2)
+storedata$DayOfYear=lubridate::yday(storedata$date2)
+storedata$DayOfQuarter=lubridate::qday(storedata$date2)
+##Week of year & month
+storedata$WeekOfYr=lubridate::week(storedata$date2)
+storedata$WeekOfMnth=ceiling((day(storedata$date2)+first_day_of_month_wday(storedata$date2)-1)/7)
+dim(storedata)
+testset=storedata[storedata$ind=="test",]
+dim(testset)
+train=storedata[storedata$ind=="train",]
+dim(train)
+print("test and train deMerged")
+## train and validation set created
+valset=train[train$date2>=as.Date("2017-01-01"),]
+dim(valset)
+trainset=train[train$date2<as.Date("2017-01-01"),]
+dim(trainset)
+train=train[,-which(names(train) %in% c("id","ind"))]
+```
+####Store1 Item 1 sales over different time periods
+```{r chunk5,echo=F,results="show"}
+ store1item1=train %>% filter(store==1 & item==1)
+store1item1 %>% ggplot(aes(x=date2,y=sales))+geom_line()
+##single store all items
+store1=train %>% filter(store==1)
+store1 %>% ggplot(aes(x=date2,y=sales,group=item,color=item))+geom_line()
+```
+###Imposing linear regression line on sales scatter plot
+```{r chunk9 ,echo=F,results="show"}
+store1item1 %>% ggplot(aes(x=date2,y=sales))+geom_point(size=0.5)+labs(title = "Scatter plot with smoothed regression line",x="Date",y="Sales" )+geom_smooth(method = "lm",color="blue")
+```
+###Imposing linear regression line on sales scatter plot for all observations
+```{r chunk10,echo=F,results="show"}
+as.data.frame(train) %>% ggplot(aes(x=date2,y=sales))+geom_point(size=0.5)+labs(title = "Scatter plot (for all records) with smoothed regression line",x="Date",y="Sales" )+geom_smooth(method="lm",color="blue")
+```
+####All stores year wise sales(for all items)
+```{r chunk6,echo=F,results="show"}
+NotFancy <- function(l) {
+ l <- format(l, scientific = FALSE)
+ parse(text=l)
+}
+fancy_scientific <- function(l) {
+     # turn in to character string in scientific notation
+     l <- format(l, scientific = TRUE)
+     # quote the part before the exponent to keep all the digits
+     l <- gsub("^(.*)e", "'\\1'e", l)
+     # turn the 'e+' into plotmath format
+     l <- gsub("e", "%*%10^", l)
+     # return this as an expression
+     parse(text=l)
+}
+store_yearwise=train %>% group_by(store,YEAR) %>% summarise(Total_sales=sum(sales))
+as.data.frame(store_yearwise) %>% ggplot(aes(x=YEAR,y=Total_sales))+geom_bar(aes(fill=interaction(store),group=store),stat = "identity",position = position_dodge2())+scale_y_continuous(labels = scales::comma)+geom_text(aes(x=YEAR,y=Total_sales,label=Total_sales,group=store),position = position_dodge(width = 0.8),vjust=-0.5,size=2)+theme_bw()+labs(fill="Stores Legend")
+
+```
+Data shows STORES 2,8,3,10,9,4,1 as leading the way ,with STORES 5,6 following and with STORE 7 as the laggard in terms of sales size.
+This conclusion assumes that all stores are of the same size (sqft)with roughly same inventory.
+
+####All store item wise year wise sales for Item1
+```{r chunk7,echo=F,result="show"}
+store_item_yearwise=train %>% group_by(store,item,YEAR) %>% summarise(Total_Yearly_sales=sum(sales))
+as.data.frame(store_item_yearwise) %>% filter(item==1) %>% ggplot(aes(x=YEAR,y=Total_Yearly_sales))+geom_bar(aes(fill=interaction(store),group=store),stat="identity",position=position_dodge2())+labs(title = "All Store sales for Item 1 only",x="Year",y="Total Yearly Sales for Item1",fill="STORES Legend")+theme_linedraw()
+```
+Similarly plotting data for Item 2,3,10,20,50 as well
+```{r chunk8,echo=F,results="show"}
+as.data.frame(store_item_yearwise) %>% filter(item==2) %>% ggplot(aes(x=YEAR,y=Total_Yearly_sales))+geom_bar(aes(fill=interaction(store),group=store),stat="identity",position=position_dodge2())+labs(title = "All Store sales for Item 2 only",x="Year",y="Total Yearly Sales for Item 2",fill="STORES Legend")+theme_linedraw()
+
+as.data.frame(store_item_yearwise) %>% filter(item==3) %>% ggplot(aes(x=YEAR,y=Total_Yearly_sales))+geom_bar(aes(fill=interaction(store),group=store),stat="identity",position=position_dodge2())+labs(title = "All Store sales for Item 3 only",x="Year",y="Total Yearly Sales for Item 3",fill="STORES Legend")+theme_linedraw()
+
+as.data.frame(store_item_yearwise) %>% filter(item==10) %>% ggplot(aes(x=YEAR,y=Total_Yearly_sales))+geom_bar(aes(fill=interaction(store),group=store),stat="identity",position=position_dodge2())+labs(title = "All Store sales for Item 10 only",x="Year",y="Total Yearly Sales for Item 10",fill="STORES Legend")+theme_linedraw()
+
+as.data.frame(store_item_yearwise) %>% filter(item==20) %>% ggplot(aes(x=YEAR,y=Total_Yearly_sales))+geom_bar(aes(fill=interaction(store),group=store),stat="identity",position=position_dodge2())+labs(title = "All Store sales for Item 20 only",x="Year",y="Total Yearly Sales for Item 20",fill="STORES Legend")+theme_linedraw()
+
+as.data.frame(store_item_yearwise) %>% filter(item==50) %>% ggplot(aes(x=YEAR,y=Total_Yearly_sales))+geom_bar(aes(fill=interaction(store),group=store),stat="identity",position=position_dodge2())+labs(title = "All Store sales for Item 50 only",x="Year",y="Total Yearly Sales for Item 50",fill="STORES Legend")+theme_linedraw()
+```
+The above visuals show that for any item the trend is increasing across stores with time (on available data of 5 years)
+
+###Monthly seasonality-Monthly Total Sales Per STORE
+```{r chunk11,echo=F,results="show"}
+store_monthwise=train %>% group_by(store,MNTH_NM,YEAR) %>% summarise(Total_monthly_sales=sum(sales))
+monthwise_allstores=train %>% group_by(MNTH_NM,YEAR) %>% summarise(Total_monthly_sales=sum(sales))
+dayofmonthwise_allstores=train %>% group_by(DayOfMonth,YEAR) %>% summarise(Total_Daily_Sales=sum(sales))
+a=as.data.frame(store_monthwise) %>% filter(store==1)
+b=as.data.frame(store_monthwise) %>% filter(store==1 & YEAR==2013)
+a %>% ggplot(aes(x=MNTH_NM,y=Total_monthly_sales))+geom_boxplot(aes(fill=MNTH_NM))+labs(title ="Store 1 Monthly Sales-All Years",x="Months",y="Monthly Sales",fill="Months Legend" )+scale_y_continuous(labels=scales::comma)
+
+## Monthly line plot for store 1 Year 2013
+b %>% ggplot(aes(x=MNTH_NM,y=Total_monthly_sales,group=store))+geom_line()+labs(title = "Store1 monthwise sales in 2013",x="Month Of the Year",y="Monthly sales(No.Of Items)")+scale_y_continuous(labels=scales::comma)
+
+##Monthly line plot for store 1 All Years
+a %>% ggplot(aes(x=MNTH_NM,y=Total_monthly_sales,group=YEAR,colour=YEAR))+geom_line()+labs(title = "Store1 monthwise sales-All Years",x="Month Of the Year",y="Monthly sales(No.Of Items)")+scale_y_continuous(labels=scales::comma)
+
+##Monthly line plot for All Stores All Years
+monthwise_allstores %>% ggplot(aes(x=MNTH_NM,y=Total_monthly_sales,group=YEAR,colour=YEAR))+geom_line()+labs(title = "Monthly line plot for All Stores All Years",x="Month Of the Year",y="Monthly sales(No.Of Items)")+scale_y_continuous(labels=scales::comma)+theme_light()
+
+##Monthly line plot for Day of MONTH-All stores and All years
+as.data.frame(dayofmonthwise_allstores) %>% ggplot(aes(x=DayOfMonth,y=Total_Daily_Sales,group=YEAR,color=YEAR))+geom_line()+labs(title = "Day of Month-Sales for All Stores and Different Years",x="Day Of Month",y="Daily Sales Across All Stores")+scale_y_continuous(labels=scales::comma)+theme_light()
+
+
+##Box plots
+
+a=as.data.frame(store_monthwise) %>% filter(store==2)
+a %>% ggplot(aes(x=MNTH_NM,y=Total_monthly_sales))+geom_boxplot(aes(fill=MNTH_NM))+labs(title ="Store 2 Monthly Sales-All Years",x="Months",y="Monthly Sales",fill="Months Legend" )+scale_y_continuous(labels=scales::comma)
+
+a=as.data.frame(store_monthwise)
+a %>% ggplot(aes(x=MNTH_NM,y=Total_monthly_sales))+geom_boxplot(aes(fill=MNTH_NM))+labs(title ="All Stores  Monthly Sales-All Years",x="Months",y="Monthly Sales",fill="Months Legend" )+scale_y_continuous(labels=scales::comma)+guides(fill=FALSE)+theme_bw()
+```
+The above visuals are showing that mostly sales across all stores are following almost same pattern and monthly seasonality is present.
+
+###Weekday Total sales 
+```{r chunk12,echo=F,results="show"}
+store_weekdaywise=train %>% group_by(store,DayOfWeek_Name,YEAR) %>% summarise(TotalDayWise_Sales=sum(sales))
+weekdaywise_allstores=train %>% group_by(DayOfWeek_Name,YEAR) %>% summarise(Total_Daily_Sales=sum(sales))
+a=as.data.frame(store_weekdaywise)
+a %>% ggplot(aes(x=DayOfWeek_Name,y=TotalDayWise_Sales))+geom_boxplot(aes(fill=DayOfWeek_Name))+labs(title ="All Stores Day of Week Sales-All Years",x="Day of Week",y="Sales",fill="Legend" )+scale_y_continuous(labels=scales::comma)+guides(fill=FALSE)+theme_bw()
+
+##DayOfWeek wise line plot to check Weekly seasonality
+as.data.frame(weekdaywise_allstores) %>% ggplot(aes(x=DayOfWeek_Name,y=Total_Daily_Sales,group=YEAR,color=YEAR))+geom_line()+labs(title = "Week Daywise Sales of All Stores",x="WeekDay",y="Daily Sales(no. of Items)")+scale_y_continuous(labels=scales::comma)+theme_light()
+
+```
+The above graph shows that Weekend ie Sunday and Saturday drive the sales across all stores.
+
+
+#####Create a timeseries object 
+```{r chunk13,echo=T,results="hide"}
+inds=seq(from=as.Date("2013-01-01"),to=as.Date("2016-12-31"),by="day")   ## this provides clear cut x axis values year wise 
+last=length(inds)
+Firstdayofyear=as.numeric(format(inds[1], "%j"))
+Lastdayofyear=as.numeric(format(inds[last],"%j"))
+sales_ts=ts(trainset$sales,start = c(2013,Firstdayofyear),end=c(2016,Lastdayofyear),frequency = 365)
+head(sales_ts)
+tail(sales_ts)
+```
+####Decompose the timeseries object into componenents (Trend,seasonal,residuals)
+```{r chunk14,echo=T,results="show"}
+train_ts_comp=decompose(sales_ts)
+autoplot(train_ts_comp)
+```
+
+####Lets generate a benchmark model using Naive and seasonal approach (we will check the smape on validation set (known data))
+```{r chunk15,echo=T,results="show"}
+valset90=valset$sales[1:90]
+mean_model=meanf(sales_ts,h=90)
+predicted_mean_model=mean_model$mean
+smape(valset90,predicted_mean_model)
+```
+Where smape is symetric mean absolute percentage error (error metric being used for this forecasting exercise)
+So,smape=0.270679 is the bench mark for us to beat.
+
+####Lets try Naive and seasonal Naive methods and generate corresponding smape
+```{r chunk16,echo=T}
+naive_model=naive(sales_ts,h=90)
+predicted_naive_model=naive_model$mean
+smape(valset90,predicted_naive_model)
+```
+In this case, smape=0.2714592
+Lets run seasonal Naive as well
+```{r chunk17,echo=T}
+snaive_model=snaive(sales_ts,h=90)
+predicted=snaive_model$mean
+smape(valset90,predicted)
+```
+In this case,smape=0.338339
+### Lets try the ARIMA approach
+Begin with checking stationarity of the overall timeseries 
+```{r chunk18,echo=T}
+acf(sales_ts,lag.max = 60)
+```
+Acf plot reveals that autocorr is not cutting off indicating non stationary TS
+```{r chunk19,echo=T,results="show"}
+pacf(sales_ts,lag.max = 60)
+```
+Pacf plot reveals that partial autocorr not cutting off either 
+
+Acf graph doesnot cut of below significance level hence ts is non stationary 
+
+Lets find after how many differences will the timeseries become stationary using R function 'ndiffs' and then differencing the timeseries
+```{r chunk20,echo=T,results="show"}
+ndiffs(sales_ts)
+##results in 1
+
+#first differencing 
+sales_ts_stnry=diff(sales_ts,differences=1)
+plot.ts(sales_ts_stnry)
+```
+After making timeseries stationary:
+we plot acf again to find the order of Moving average process(MA)
+we plot pacf again to find the order of Auto correlation process(AR)
+(p,d,q)-->(AR,d,MA) is found by (PACF,ndiff,ACF)
+```{r chunk21,echo=T,results="show"}
+acf(sales_ts_stnry)
+pacf(sales_ts_stnry)
+```
+p= -7 lags from pacf AR process
+q= -1 lags from acf MA process 
+d= -1 from ndiffs and sationary TS 
+Hence combinations for ARIMA model (p,d,q) -(0,1,0);(0,0,1);(0,1,1);(7,0,0);(7,1,1)
+
+However grid search gives lowest AIC at (7,1,7)
+```{r chunk22,echo=T,results="show"}
+arima_mod=arima(sales_ts,order=c(7,1,7),method="ML")
+arima_mod$aic
+##predicting with the created model
+pred=forecast(arima_mod,h=90)
+predicted=pred$mean
+smape(valset90,predicted)
+```
+Slightly better mean absolute error with simple ARIMA model,lets incorporate seasonal ARIMA component as well.
+
+
+
+
+
+
+
+
+
+
+
+
