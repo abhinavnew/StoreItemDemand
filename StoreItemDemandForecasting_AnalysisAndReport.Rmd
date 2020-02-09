@@ -7,9 +7,13 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE,warning = F,message = F,fig.width = 12,fig.height = 8)
+
 ```
 
 # Report on data analysis and prediction methods-Store Item forecasting
+
+Data and evaluation criteria is given on the following link :
+[Store Demand Forecasting](https://www.kaggle.com/c/demand-forecasting-kernels-only/overview/evaluation)
 
 
 ```{r lib_load,echo=F,results="hide",include=F}
@@ -40,10 +44,11 @@ library(zoo)
 ```
 
 ####Loading the store item dataset (Training data and Unknown data)
-```{r load_data,echo=TRUE,include=T,results="hide"}
+```{r load_data,echo=TRUE,include=T,results="hide",cache=TRUE}
 options(scipen = 999)
 rm(list = ls())
 gc()
+starttime=Sys.time()
 first_day_of_month_wday <- function(dt) {
   day(dt) <- 1
   wday(dt)
@@ -54,7 +59,7 @@ storedata_origtrain=fread("E:\\AbhinavB\\Kaggle\\StoreItemDemandPrediction\\trai
 storedata_origtest=fread("E:\\AbhinavB\\Kaggle\\StoreItemDemandPrediction\\test.csv",data.table = FALSE,stringsAsFactors = TRUE)
 ```
 ####Combining Training and Unknown data for adding features
-```{r features,echo=T}
+```{r features,echo=T,cache=TRUE}
 dim(storedata_origtrain)
 dim(storedata_origtest)
 storedata_train=storedata_origtrain
@@ -70,7 +75,7 @@ glimpse(storedata)
 ```
 
 ####Date related feature engineering and validation set for testing model on known data
-```{r chunk4,echo=T,results="hide"}
+```{r chunk4,echo=T,results="hide",cache=TRUE}
 storedata$date2=ymd(storedata$date)
 storedata$YEAR=lubridate::year(storedata$date2)
 storedata$MNTH=lubridate::month(storedata$date2)
@@ -100,7 +105,7 @@ dim(trainset)
 train=train[,-which(names(train) %in% c("id","ind"))]
 ```
 ####Store1 Item 1 sales over different time periods
-```{r chunk5,echo=F,results="show"}
+```{r chunk5,echo=F,results="show",cache=TRUE}
  store1item1=train %>% filter(store==1 & item==1)
 store1item1 %>% ggplot(aes(x=date2,y=sales))+geom_line()
 ##single store all items
@@ -108,15 +113,15 @@ store1=train %>% filter(store==1)
 store1 %>% ggplot(aes(x=date2,y=sales,group=item,color=item))+geom_line()
 ```
 ###Imposing linear regression line on sales scatter plot
-```{r chunk9 ,echo=F,results="show"}
+```{r chunk9 ,echo=F,results="show",cache=TRUE}
 store1item1 %>% ggplot(aes(x=date2,y=sales))+geom_point(size=0.5)+labs(title = "Scatter plot with smoothed regression line",x="Date",y="Sales" )+geom_smooth(method = "lm",color="blue")
 ```
 ###Imposing linear regression line on sales scatter plot for all observations
-```{r chunk10,echo=F,results="show"}
+```{r chunk10,echo=F,results="show",cache=TRUE}
 as.data.frame(train) %>% ggplot(aes(x=date2,y=sales))+geom_point(size=0.5)+labs(title = "Scatter plot (for all records) with smoothed regression line",x="Date",y="Sales" )+geom_smooth(method="lm",color="blue")
 ```
 ####All stores year wise sales(for all items)
-```{r chunk6,echo=F,results="show"}
+```{r chunk6,echo=F,results="show",cache=TRUE}
 NotFancy <- function(l) {
  l <- format(l, scientific = FALSE)
  parse(text=l)
@@ -139,12 +144,12 @@ Data shows STORES 2,8,3,10,9,4,1 as leading the way ,with STORES 5,6 following a
 This conclusion assumes that all stores are of the same size (sqft)with roughly same inventory.
 
 ####All store item wise year wise sales for Item1
-```{r chunk7,echo=F,result="show"}
+```{r chunk7,echo=F,result="show",cache=TRUE}
 store_item_yearwise=train %>% group_by(store,item,YEAR) %>% summarise(Total_Yearly_sales=sum(sales))
 as.data.frame(store_item_yearwise) %>% filter(item==1) %>% ggplot(aes(x=YEAR,y=Total_Yearly_sales))+geom_bar(aes(fill=interaction(store),group=store),stat="identity",position=position_dodge2())+labs(title = "All Store sales for Item 1 only",x="Year",y="Total Yearly Sales for Item1",fill="STORES Legend")+theme_linedraw()
 ```
 Similarly plotting data for Item 2,3,10,20,50 as well
-```{r chunk8,echo=F,results="show"}
+```{r chunk8,echo=F,results="show",cache=TRUE}
 as.data.frame(store_item_yearwise) %>% filter(item==2) %>% ggplot(aes(x=YEAR,y=Total_Yearly_sales))+geom_bar(aes(fill=interaction(store),group=store),stat="identity",position=position_dodge2())+labs(title = "All Store sales for Item 2 only",x="Year",y="Total Yearly Sales for Item 2",fill="STORES Legend")+theme_linedraw()
 
 as.data.frame(store_item_yearwise) %>% filter(item==3) %>% ggplot(aes(x=YEAR,y=Total_Yearly_sales))+geom_bar(aes(fill=interaction(store),group=store),stat="identity",position=position_dodge2())+labs(title = "All Store sales for Item 3 only",x="Year",y="Total Yearly Sales for Item 3",fill="STORES Legend")+theme_linedraw()
@@ -158,7 +163,7 @@ as.data.frame(store_item_yearwise) %>% filter(item==50) %>% ggplot(aes(x=YEAR,y=
 The above visuals show that for any item the trend is increasing across stores with time (on available data of 5 years)
 
 ###Monthly seasonality-Monthly Total Sales Per STORE
-```{r chunk11,echo=F,results="show"}
+```{r chunk11,echo=F,results="show",cache=TRUE}
 store_monthwise=train %>% group_by(store,MNTH_NM,YEAR) %>% summarise(Total_monthly_sales=sum(sales))
 monthwise_allstores=train %>% group_by(MNTH_NM,YEAR) %>% summarise(Total_monthly_sales=sum(sales))
 dayofmonthwise_allstores=train %>% group_by(DayOfMonth,YEAR) %>% summarise(Total_Daily_Sales=sum(sales))
@@ -190,7 +195,7 @@ a %>% ggplot(aes(x=MNTH_NM,y=Total_monthly_sales))+geom_boxplot(aes(fill=MNTH_NM
 The above visuals are showing that mostly sales across all stores are following almost same pattern and monthly seasonality is present.
 
 ###Weekday Total sales 
-```{r chunk12,echo=F,results="show"}
+```{r chunk12,echo=F,results="show",cache=TRUE}
 store_weekdaywise=train %>% group_by(store,DayOfWeek_Name,YEAR) %>% summarise(TotalDayWise_Sales=sum(sales))
 weekdaywise_allstores=train %>% group_by(DayOfWeek_Name,YEAR) %>% summarise(Total_Daily_Sales=sum(sales))
 a=as.data.frame(store_weekdaywise)
@@ -286,6 +291,9 @@ arima_mod$aic
 pred=forecast(arima_mod,h=90)
 predicted=pred$mean
 smape(valset90,predicted)
+endtime=Sys.time()
+timetaken=endtime-starttime
+timetaken
 ```
 Slightly better mean absolute error with simple ARIMA model,lets incorporate seasonal ARIMA component as well.
 
