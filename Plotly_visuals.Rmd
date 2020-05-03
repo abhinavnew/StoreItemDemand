@@ -1,0 +1,149 @@
+---
+title: "PlotlyVisuals"
+author: "Abhinav Bajpai"
+date: "15 March 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE,echo=FALSE,results="hide"}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+library(tidyr)
+library(plyr)
+library(dplyr)
+library(caTools)
+library(reshape2)
+library(gbm)
+library(randomForest)
+library(ggplot2)
+library(data.table)
+library(xgboost)
+library(Matrix)
+library(lightgbm)
+library(TeachingDemos)
+library(Hmisc)
+library(DMwR)
+library(e1071)
+library(glmnet)
+library(pROC)
+library(funModeling)
+library(lubridate)
+library(forecast)
+library(Metrics)
+library(zoo)
+library(plotly)
+library(leaflet)
+```
+
+## R Markdown
+
+This is an R Markdown document that shows some of the capabilities of the Plotly R graphics library (its a open source library)
+More information about plotly library can be found at [Plotly Website](https://plot.ly/r/)
+
+```{r chunk1,echo=T,results='asis',cache=T}
+library(plotly)
+```
+Setting some system parameters 
+
+```{r chunk2 ,echo=F,results="asis",cache=TRUE}
+rm(list=ls())
+gc()
+starttime=Sys.time()
+first_day_of_month_wday <- function(dt) {
+  day(dt) <- 1
+  wday(dt)
+}
+```
+Loading datasets
+
+```{r chunk3 ,echo=FALSE,results="asis",cache=TRUE}
+
+cm=read.csv("E:\\AbhinavB\\Falcon\\HealthcareAnalytics\\TRINITY DataAnalysis\\final configs\\Original Import\\Original Import\\CM\\Charge_Master_20191113_195114.csv",header = T)
+storedata_origtrain=fread("E:\\AbhinavB\\Kaggle\\StoreItemDemandPrediction\\train.csv",
+                          data.table = FALSE,stringsAsFactors = TRUE)
+storedata_origtest=fread("E:\\AbhinavB\\Kaggle\\StoreItemDemandPrediction\\test.csv",data.table = FALSE,stringsAsFactors = TRUE)
+
+head(storedata_origtrain)
+```
+Adding date features for making sense of data
+
+```{r chunk4,echo=FALSE,results="hide",cache=TRUE}
+dim(storedata_origtrain)
+dim(storedata_origtest)
+storedata_train=storedata_origtrain
+storedata_test=storedata_origtest
+storedata_train$id=NA
+storedata_train$ind="train"
+storedata_test$sales=NA
+storedata_test$ind="test"
+combined=rbind(storedata_train,storedata_test)
+storedata=combined
+dim(storedata)
+glimpse(storedata)
+storedata$date2=ymd(storedata$date)
+storedata$YEAR=lubridate::year(storedata$date2)
+storedata$MNTH=lubridate::month(storedata$date2)
+storedata$MNTH_NM=lubridate::month(storedata$date2,label=TRUE)
+storedata$Quarter=lubridate::quarter(storedata$date2)
+storedata$Semester=lubridate::semester(storedata$date2)
+##Day of week month year 
+storedata$DayOfWeek=lubridate::wday(storedata$date2)
+storedata$DayOfWeek_Name=lubridate::wday(storedata$date2,label=TRUE)
+storedata$DayOfMonth=lubridate::mday(storedata$date2)
+storedata$DayOfYear=lubridate::yday(storedata$date2)
+storedata$DayOfQuarter=lubridate::qday(storedata$date2)
+##Week of year & month
+storedata$WeekOfYr=lubridate::week(storedata$date2)
+storedata$WeekOfMnth=ceiling((day(storedata$date2)+first_day_of_month_wday(storedata$date2)-1)/7)
+dim(storedata)
+testset=storedata[storedata$ind=="test",]
+dim(testset)
+train=storedata[storedata$ind=="train",]
+dim(train)
+print("test and train deMerged")
+## train and validation set created
+valset=train[train$date2>=as.Date("2017-01-01"),]
+dim(valset)
+trainset=train[train$date2<as.Date("2017-01-01"),]
+dim(trainset)
+train=train[,-which(names(train) %in% c("id","ind"))]
+store1item1=train %>% filter(store==1 & item==1)
+##Store 1 but with all items
+store1=train %>% filter(store==1)
+```
+Now start plotting with the plotly graphic library
+
+```{r chunk5,echo=T,results="show",cache=TRUE}
+store1item1 %>% ggplot(aes(x=date2,y=sales))+geom_line()
+##Plotly scatter plot for same dataset
+plot_ly(data=store1item1,x=~date2,y=~sales)
+##Plotly line graph for same dateset
+plot_ly(data=store1item1,x=~date2,y=~sales,type = "scatter",mode="lines")
+##Plotly line graph for Store1 but all items
+plot_ly(data=store1,x=~date2,y=~sales,type = "scatter",mode="lines+markers")
+```
+All Stores year wise sales through plotly graphs
+```{r chunk6,echo=F,results="show",cache=FALSE}
+store_yearwise=train %>% group_by(store,YEAR) %>% summarise(Total_sales=sum(sales))
+head(store_yearwise)
+##plotly bar graph
+plot_ly(as.data.frame(store_yearwise),x=store_yearwise$YEAR,y=store_yearwise$Total_sales,color=store_yearwise$store,type = "bar") 
+
+```
+
+Store1 Item1 Line graph with Plotly
+
+```{r chunk7 ,echo=F,results="show",cache=TRUE}
+store1yearwise=store1item1 %>% group_by(YEAR) %>% summarise(Year_Sales=sum(sales))
+
+plot_ly(as.data.frame(store1yearwise),x=~YEAR,y=~Year_Sales,type = "scatter",mode="lines")
+
+plot_ly(as.data.frame(store_yearwise),x=store_yearwise$YEAR,y=store_yearwise$Total_sales,color=store_yearwise$store,type="scatter",mode="lines")
+```
+
+Using leaflet
+```{r chunk8 ,echo=FALSE,results="show",cache=FALSE}
+pin=data.frame(lng=28.5737,lat=77.3908)
+map=leaflet() %>% addTiles() %>% addMarkers(data=pin,popup = "Ajnara Grand Heritage")
+map
+
